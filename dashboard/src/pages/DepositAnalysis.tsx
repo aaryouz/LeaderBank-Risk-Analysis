@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Line
 } from 'recharts';
 import KPICard from '../components/KPICard';
 import { loadCleanedBanking, filterData, calculateKPIs } from '../utils/dataLoader';
@@ -9,7 +9,6 @@ import type { FilterState, BankingRecord } from '../utils/dataLoader';
 const DepositAnalysis: React.FC = () => {
   const [rawData, setRawData] = useState<BankingRecord[]>([]);
   const [kpis, setKpis] = useState<Record<string, { value: number; formatted: string }>>({});
-  const [nationalityData, setNationalityData] = useState<any[]>([]);
   const [incomeData, setIncomeData] = useState<any[]>([]);
   const [engagementData, setEngagementData] = useState<any[]>([]);
   const [filters, setFilters] = useState<FilterState>({
@@ -31,46 +30,49 @@ const DepositAnalysis: React.FC = () => {
       const calculated = calculateKPIs(filtered);
       setKpis(calculated);
 
-      // Group by nationality
-      const natMap = new Map<string, { deposit: number; checking: number; savings: number; foreign: number }>();
+      // Group by income band with breakdown
+      const incMap = new Map<string, { deposit: number; checking: number; savings: number; foreign: number; count: number }>();
       filtered.forEach(r => {
-        const nat = r.Nationality || 'Unknown';
-        const existing = natMap.get(nat) || { deposit: 0, checking: 0, savings: 0, foreign: 0 };
-        natMap.set(nat, {
+        const inc = r['Income Band'] || 'Unknown';
+        const existing = incMap.get(inc) || { deposit: 0, checking: 0, savings: 0, foreign: 0, count: 0 };
+        incMap.set(inc, {
           deposit: existing.deposit + (r['Bank Deposits'] || 0),
           checking: existing.checking + (r['Checking Accounts'] || 0),
           savings: existing.savings + (r['Saving Accounts'] || 0),
           foreign: existing.foreign + (r['Foreign Currency Account'] || 0),
+          count: existing.count + 1
         });
       });
-      setNationalityData(Array.from(natMap.entries()).map(([name, vals]) => ({
-        name,
-        bankDeposit: vals.deposit / 1000000,
-        checking: vals.checking / 1000000,
-        savings: vals.savings / 1000000,
-        foreign: vals.foreign / 1000000,
-      })));
+      const sortOrder = ['Low', 'Medium', 'High', 'Very High'];
+      setIncomeData(Array.from(incMap.entries())
+        .map(([name, data]) => ({
+          name,
+          bankDeposit: data.deposit / 1000000,
+          checking: data.checking / 1000000,
+          savings: data.savings / 1000000,
+          foreign: data.foreign / 1000000,
+          avgDeposit: ((data.deposit + data.checking + data.savings + data.foreign) / data.count) / 1000
+        }))
+        .sort((a, b) => sortOrder.indexOf(a.name) - sortOrder.indexOf(b.name)));
 
-      // Group by income band
-      const incMap = new Map<string, number>();
-      filtered.forEach(r => {
-        const inc = r['Income Band'] || 'Unknown';
-        incMap.set(inc, (incMap.get(inc) || 0) + (r['Bank Deposits'] || 0));
-      });
-      setIncomeData(Array.from(incMap.entries()).map(([name, bankDeposit]) => ({
-        name,
-        bankDeposit: bankDeposit / 1000000
-      })));
-
-      // Group by engagement
-      const engMap = new Map<string, number>();
+      // Group by engagement with breakdown
+      const engMap = new Map<string, { deposit: number; checking: number; savings: number; foreign: number; count: number }>();
       filtered.forEach(r => {
         const eng = r['Engagement Timeframe'] || 'Unknown';
-        engMap.set(eng, (engMap.get(eng) || 0) + (r['Total Deposit'] || 0));
+        const existing = engMap.get(eng) || { deposit: 0, checking: 0, savings: 0, foreign: 0, count: 0 };
+        engMap.set(eng, {
+          deposit: existing.deposit + (r['Bank Deposits'] || 0),
+          checking: existing.checking + (r['Checking Accounts'] || 0),
+          savings: existing.savings + (r['Saving Accounts'] || 0),
+          foreign: existing.foreign + (r['Foreign Currency Account'] || 0),
+          count: existing.count + 1
+        });
       });
-      setEngagementData(Array.from(engMap.entries()).map(([name, totalDeposit]) => ({
+      setEngagementData(Array.from(engMap.entries()).map(([name, data]) => ({
         name,
-        totalDeposit: totalDeposit / 1000000
+        totalDeposit: (data.deposit + data.checking + data.savings + data.foreign) / 1000000,
+        customers: data.count,
+        avgDeposit: ((data.deposit + data.checking + data.savings + data.foreign) / data.count) / 1000
       })));
     }
   }, [rawData, filters]);
@@ -173,44 +175,40 @@ const DepositAnalysis: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Bank Deposit by Income Band (M)</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <h3 className="text-sm font-bold text-gray-700 mb-2">Deposit Breakdown by Income Band</h3>
+          <p className="text-xs text-gray-500 mb-4">Stacked deposit types by income level</p>
+          <ResponsiveContainer width="100%" height={280}>
             <BarChart data={incomeData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="bankDeposit" fill="#1e3a5f" />
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Amount (M)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+              <Tooltip
+                formatter={(value: number, name: string) => [`$${value.toFixed(1)}M`, name]}
+                labelFormatter={(label) => `Income: ${label}`}
+              />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="bankDeposit" stackId="a" fill="#0d9488" name="Bank Deposit" />
+              <Bar dataKey="checking" stackId="a" fill="#f59e0b" name="Checking" />
+              <Bar dataKey="savings" stackId="a" fill="#8b5cf6" name="Savings" />
+              <Bar dataKey="foreign" stackId="a" fill="#ec4899" name="Foreign Currency" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Total Deposit by Engagement Timeframe (M)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={engagementData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis dataKey="name" type="category" width={60} />
-              <Tooltip />
-              <Bar dataKey="totalDeposit" fill="#1e3a5f" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-4 col-span-2">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Total Deposit by Nationality (M)</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={nationalityData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="bankDeposit" stackId="a" fill="#1e3a5f" name="Bank Deposit" />
-              <Bar dataKey="checking" stackId="a" fill="#2563eb" name="Checking" />
-              <Bar dataKey="savings" stackId="a" fill="#3b82f6" name="Savings" />
-              <Bar dataKey="foreign" stackId="a" fill="#60a5fa" name="Foreign Currency" />
+          <h3 className="text-sm font-bold text-gray-700 mb-2">Deposits by Customer Tenure</h3>
+          <p className="text-xs text-gray-500 mb-4">Total deposits by engagement period</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={engagementData}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Amount (M)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+              <Tooltip
+                formatter={(value: number) => [`$${value.toFixed(1)}M`, 'Total Deposits']}
+                labelFormatter={(label) => `Tenure: ${label}`}
+              />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="totalDeposit" fill="#0d9488" name="Total Deposits (M)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

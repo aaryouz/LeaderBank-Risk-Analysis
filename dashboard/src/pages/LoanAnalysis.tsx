@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Treemap
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell
 } from 'recharts';
 import KPICard from '../components/KPICard';
 import { loadCleanedBanking, filterData, calculateKPIs } from '../utils/dataLoader';
@@ -9,7 +9,6 @@ import type { FilterState, BankingRecord } from '../utils/dataLoader';
 const LoanAnalysis: React.FC = () => {
   const [rawData, setRawData] = useState<BankingRecord[]>([]);
   const [kpis, setKpis] = useState<Record<string, { value: number; formatted: string }>>({});
-  const [nationalityData, setNationalityData] = useState<any[]>([]);
   const [incomeData, setIncomeData] = useState<any[]>([]);
   const [engagementData, setEngagementData] = useState<any[]>([]);
   const [filters, setFilters] = useState<FilterState>({
@@ -31,27 +30,25 @@ const LoanAnalysis: React.FC = () => {
       const calculated = calculateKPIs(filtered);
       setKpis(calculated);
 
-      // Group by nationality
-      const natMap = new Map<string, number>();
-      filtered.forEach(r => {
-        const nat = r.Nationality || 'Unknown';
-        natMap.set(nat, (natMap.get(nat) || 0) + (r['Bank Loans'] || 0));
-      });
-      setNationalityData(Array.from(natMap.entries()).map(([name, value]) => ({
-        name,
-        value: value / 1000000
-      })));
-
-      // Group by income band
-      const incMap = new Map<string, number>();
+      // Group by income band with count and average
+      const incMap = new Map<string, { total: number; count: number }>();
       filtered.forEach(r => {
         const inc = r['Income Band'] || 'Unknown';
-        incMap.set(inc, (incMap.get(inc) || 0) + (r['Bank Loans'] || 0));
+        const existing = incMap.get(inc) || { total: 0, count: 0 };
+        incMap.set(inc, {
+          total: existing.total + (r['Bank Loans'] || 0),
+          count: existing.count + 1
+        });
       });
-      setIncomeData(Array.from(incMap.entries()).map(([name, bankLoan]) => ({
-        name,
-        bankLoan: bankLoan / 1000000
-      })));
+      const sortOrder = ['Low', 'Medium', 'High', 'Very High'];
+      setIncomeData(Array.from(incMap.entries())
+        .map(([name, data]) => ({
+          name,
+          totalLoan: data.total / 1000000,
+          avgLoan: (data.total / data.count) / 1000,
+          customers: data.count
+        }))
+        .sort((a, b) => sortOrder.indexOf(a.name) - sortOrder.indexOf(b.name)));
 
       // Group by engagement
       const engMap = new Map<string, { total: number; bank: number; business: number; cc: number }>();
@@ -172,37 +169,44 @@ const LoanAnalysis: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Bank Loan by Nationality (M)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <Treemap data={nationalityData} dataKey="value" aspectRatio={4/3} stroke="#fff" fill="#1e3a5f" />
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Bank Loan by Income Band (M)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={incomeData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis dataKey="name" type="category" width={60} />
-              <Tooltip />
-              <Bar dataKey="bankLoan" fill="#1e3a5f" />
+          <h3 className="text-sm font-bold text-gray-700 mb-2">Loan Distribution by Income Band</h3>
+          <p className="text-xs text-gray-500 mb-4">Total loans (M) and average per customer (K)</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={incomeData}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="left" tick={{ fontSize: 11 }} label={{ value: 'Total (M)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} label={{ value: 'Avg (K)', angle: 90, position: 'insideRight', fontSize: 10 }} />
+              <Tooltip
+                formatter={(value: number, name: string) => [
+                  name === 'totalLoan' ? `$${value.toFixed(1)}M` : `$${value.toFixed(0)}K`,
+                  name === 'totalLoan' ? 'Total Loans' : 'Avg per Customer'
+                ]}
+                labelFormatter={(label) => `Income: ${label}`}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar yAxisId="left" dataKey="totalLoan" fill="#1e3a5f" name="Total Loans (M)" radius={[4, 4, 0, 0]} />
+              <Bar yAxisId="right" dataKey="avgLoan" fill="#3b82f6" name="Avg per Customer (K)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-4 col-span-2">
-          <h3 className="text-sm font-bold text-gray-700 mb-4">Loans by Engagement Timeframe (M)</h3>
-          <ResponsiveContainer width="100%" height={300}>
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-2">Loan Composition by Customer Tenure</h3>
+          <p className="text-xs text-gray-500 mb-4">Breakdown of loan types by engagement period</p>
+          <ResponsiveContainer width="100%" height={280}>
             <BarChart data={engagementData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="totalLoan" fill="#1e3a5f" name="Total Loan" />
-              <Bar dataKey="bankLoan" fill="#2563eb" name="Bank Loan" />
-              <Bar dataKey="businessLending" fill="#3b82f6" name="Business Lending" />
-              <Bar dataKey="creditCards" fill="#60a5fa" name="Credit Cards" />
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Amount (M)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+              <Tooltip
+                formatter={(value: number, name: string) => [`$${value.toFixed(1)}M`, name]}
+                labelFormatter={(label) => `Tenure: ${label}`}
+              />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="bankLoan" stackId="a" fill="#0d9488" name="Bank Loans" />
+              <Bar dataKey="businessLending" stackId="a" fill="#f59e0b" name="Business Lending" />
+              <Bar dataKey="creditCards" stackId="a" fill="#8b5cf6" name="Credit Cards" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

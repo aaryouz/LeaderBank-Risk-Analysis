@@ -159,6 +159,6 @@ export function calculateKPIs(data: BankingRecord[]) {
     'Foreign Currency Amount': { value: foreign, formatted: formatCurrency(foreign) },
     'Total CC Amount': { value: totalCC, formatted: formatNumber(totalCC) },
     'Total Fees': { value: totalFees, formatted: formatCurrency(totalFees) },
-    'Average Risk Score': { value: avgRisk, formatted: avgRisk.toFixed(2) },
+    'Average Risk Score': { value: avgRisk, formatted: `${avgRisk.toFixed(1)}/100` },
   };
 }
