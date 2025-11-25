@@ -1,4 +1,4 @@
-# LeaderBank Risk Analysis Dashboard
+# Demo ETL Risk Analysis Dashboard
 
 A comprehensive banking risk assessment platform featuring a Python ETL pipeline and React/TypeScript interactive dashboard for analyzing customer loan portfolios, deposit distributions, and custom risk scoring.
 
