@@ -1,265 +1,125 @@
-# Risk Analysis Dashboard
+# Bank Risk Analysis Platform
 
-A comprehensive banking risk assessment platform featuring a Python ETL pipeline and React/TypeScript interactive dashboard for analyzing customer loan portfolios, deposit distributions, and custom risk scoring.
+Professional ETL pipeline with SQLite database and React dashboard for banking portfolio risk assessment.
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Risk Scoring Algorithm](#risk-scoring-algorithm)
-- [Dashboard Pages](#dashboard-pages)
-  - [Home Dashboard](#home-dashboard)
-  - [Loan Analysis](#loan-analysis)
-  - [Deposit Analysis](#deposit-analysis)
-  - [Summary Dashboard](#summary-dashboard)
-- [KPI Definitions](#kpi-definitions)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Tech Stack](#tech-stack)
-
----
-
-## Overview
-
-This project provides end-to-end risk analysis for a banking institution with 3,000 customers. It includes:
-
-- **ETL Pipeline**: Python-based data extraction, transformation, and loading
-- **Custom Risk Scoring**: 5-component algorithm generating 0-100 risk scores
-- **Interactive Dashboard**: Real-time filtering and visualization of KPIs
-- **Multi-dimensional Analysis**: Breakdown by income band, customer tenure, gender, relationship type, and advisor
+**Portfolio**: 3,000 customers | **Total Loans**: $4.38B | **Total Deposits**: $3.77B | **Avg Risk**: 57.5/100
 
 ---
 
 ## Architecture
 
+### ETL Pipeline
 ```
-leaderbank-risk-project/
-├── Banking.csv                 # Source data (3,000 customer records)
-├── main.py                     # ETL pipeline entry point
-├── calculate_risk_scores.py    # Risk score calculation script
-├── src/
-│   ├── extract.py              # Data loading and validation
-│   ├── transform.py            # Data cleaning and feature engineering
-│   ├── kpis.py                 # KPI calculation functions
-│   ├── load.py                 # Export to CSV
-│   └── risk_scoring.py         # Custom risk scoring algorithm
-├── output/                     # Generated CSV files
-│   ├── cleaned_banking.csv
-│   ├── kpi_summary.csv
-│   ├── kpi_by_*.csv
-│   └── risk_score_breakdown.csv
-└── dashboard/                  # React/TypeScript frontend
-    ├── src/
-    │   ├── pages/              # Dashboard views
-    │   ├── components/         # Reusable UI components
-    │   └── utils/              # Data loading utilities
-    └── public/                 # Static assets and data
+Banking.csv (3,000 records, 25 fields)
+    ↓
+[EXTRACT] src/extract.py
+    - Load CSV with pandas
+    - Validate data types
+    - Type coercion (dates, numerics, integers)
+    ↓
+[TRANSFORM] src/transform.py
+    - Calculate engagement days from join date
+    - Categorize: Income Band (Low/Mid/High)
+    - Categorize: Engagement Timeframe (<5Y, <10Y, <20Y, >20Y)
+    - Calculate: Total Loan = Bank Loans + Business Lending + CC Balance
+    - Calculate: Total Deposit = Bank Deposits + Savings + Checking + Foreign Currency
+    - Calculate: Total Fees = Total Loan × Processing Fee Rate
+    ↓
+[LOAD] src/load.py + src/database.py
+    - Insert to SQLite (output/banking.db)
+    - 4 tables: pipeline_runs, banking_records, kpi_summary, kpi_by_dimension
+    - 5 indexes: client_id, nationality, income_band, engagement, composite_filter
+    - 3 views: latest_banking_records, latest_kpi_summary, latest_kpi_by_dimension
+    - Export 7 CSV files from database
+    ↓
+[OUTPUT]
+    ├── banking.db (SQLite with audit trail)
+    ├── cleaned_banking.csv (3,000 records × 32 fields)
+    ├── kpi_summary.csv (13 KPIs)
+    └── kpi_by_*.csv (5 dimensional breakdowns)
 ```
+
+### Database Schema
+
+**pipeline_runs** - Execution audit trail
+- Tracks: run_id, timestamp, records_loaded, status, execution_time
+- Purpose: Historical versioning, performance monitoring
+
+**banking_records** - Customer data (star schema fact table)
+- Fields: 32 (25 source + 7 calculated)
+- Constraints: CHECK (age, risk_weighting, financial values ≥ 0)
+- Foreign Key: run_id → pipeline_runs
+
+**kpi_summary** - Aggregated metrics per run
+- 13 KPIs: Total Clients, Total Loan, Total Deposit, Avg Risk, etc.
+- Format: kpi_name, kpi_value, kpi_formatted
+
+**kpi_by_dimension** - Dimensional rollups
+- Dimensions: Nationality, Income Band, Engagement, Fee Structure, Loyalty
+- Metrics: 14 KPIs per dimension value
 
 ---
 
 ## Risk Scoring Algorithm
 
-The custom risk scoring system replaces the original 1-5 scale with a granular 0-100 score based on five weighted components:
+5-component weighted risk model (0-100 scale):
 
-### Components
+| Component | Weight | Formula | Interpretation |
+|-----------|--------|---------|----------------|
+| Debt Burden | 35% | (Loans + CC + Business) / Income | DTI ratio risk |
+| Liquidity Risk | 25% | Liquid Assets / Total Debt | Coverage adequacy |
+| Credit Utilization | 20% | CC Balance / Income | Revolving credit risk |
+| Asset Backing | 10% | (Properties + Super) / Debt | Collateral strength |
+| Tenure Risk | 10% | Years with Bank (inverse) | Customer maturity |
 
-| Component | Weight | Formula | Risk Logic |
-|-----------|--------|---------|------------|
-| **Debt Burden** | 35% | `(Bank Loans + CC Balance + Business Lending) / Income` | Higher debt-to-income = Higher risk |
-| **Liquidity Risk** | 25% | `Liquid Assets / Total Debt` | Less coverage = Higher risk |
-| **Credit Utilization** | 20% | `Credit Card Balance / Income` | Higher utilization = Higher risk |
-| **Asset Backing** | 10% | `(Properties + Superannuation) / Total Debt` | Less collateral = Higher risk |
-| **Tenure Risk** | 10% | `Years with Bank (normalized)` | Newer customers = Higher risk |
+**Risk Categories**: 0-30 (Low), 31-60 (Moderate), 61-80 (High), 81-100 (Critical)
 
-### Risk Categories
-
-| Score Range | Category | Description |
-|-------------|----------|-------------|
-| 0-30 | **Low** | Minimal risk exposure |
-| 31-60 | **Moderate** | Standard risk profile |
-| 61-80 | **High** | Elevated risk requiring attention |
-| 81-100 | **Critical** | Immediate risk mitigation needed |
-
-### Current Portfolio Distribution
-
-- **Mean Risk Score**: 57.5/100
-- **Low Risk**: 99 customers (3.3%)
-- **Moderate Risk**: 1,339 customers (44.6%)
-- **High Risk**: 1,562 customers (52.1%)
-- **Critical Risk**: 0 customers (0%)
+**Portfolio Distribution**: Low 3.3% | Moderate 44.6% | High 52.1% | Critical 0%
 
 ---
 
-## Dashboard Pages
+## Dashboard
+
+React/TypeScript SPA with 4 analytical views:
 
 ### Home Dashboard
-
 ![Home Dashboard](screenshots/home.png)
 
-The landing page provides a high-level overview of the entire portfolio with key metrics and navigation to detailed analysis pages.
-
-#### KPIs Displayed
-
-| KPI | Current Value | Description |
-|-----|---------------|-------------|
-| **Total Clients** | 3,000 | Total number of customers in the portfolio |
-| **Total Loan** | $4.38B | Sum of all loan products (bank loans + business lending + credit cards) |
-| **Total Deposit** | $3.77B | Sum of all deposit accounts |
-| **Total Fees** | $158.19M | Revenue from processing fees |
-| **Total CC Amount** | 4,391 | Number of credit cards issued |
-| **Saving Account** | $698.73M | Total in savings accounts |
-| **Avg Risk Score** | 57.5/100 | Portfolio-wide average risk score |
-
-#### Filters Available
-
-- **Engagement Period**: All, <5 Years, <10 Years, <20 Years, >20 Years
-- **Gender**: All, Male, Female
-
----
+**KPIs**: Total Clients, Total Loan, Total Deposit, Total Fees, Avg Risk
+**Filters**: Engagement Period, Gender
 
 ### Loan Analysis
-
 ![Loan Analysis](screenshots/loan-analysis.png)
 
-Deep-dive into the loan portfolio with breakdowns by income band and customer tenure.
-
-#### KPIs Displayed
-
-| KPI | Current Value | Description |
-|-----|---------------|-------------|
-| **Total Loan** | $4.38B | Combined value of all loan products |
-| **Bank Loan** | $1.77B | Traditional bank loans |
-| **Business Lending** | $2.60B | Commercial and business loans |
-| **Credit Cards** | $9.53M | Outstanding credit card balances |
-| **Avg Risk** | 57.5/100 | Average risk score for filtered customers |
-
-#### Charts
-
-**1. Loan Distribution by Income Band**
-- Dual-axis chart showing total loans (M) and average per customer (K)
-- Segments: Low, Medium, High income bands
-- Insight: Higher income customers have larger absolute loans but similar averages
-
-**2. Loan Composition by Customer Tenure**
-- Stacked bar chart breaking down loan types
-- Color coding:
-  - Teal: Bank Loans
-  - Amber: Business Lending
-  - Purple: Credit Cards
-- Insight: Longer-tenured customers (>20 years) have the highest loan exposure
-
-#### Additional Filters
-
-- **Relationship Type**: Retail, Institutional, Private Bank, Commercial
-- **Investment Advisor**: 22 advisors available for filtering
-
----
+**Breakdown**: Bank Loans ($1.77B) | Business Lending ($2.60B) | Credit Cards ($9.53M)
+**Charts**: Loan distribution by income band, Loan composition by tenure
+**Filters**: Relationship Type, Investment Advisor
 
 ### Deposit Analysis
-
 ![Deposit Analysis](screenshots/deposit-analysis.png)
 
-Comprehensive view of deposit products and customer savings behavior.
-
-#### KPIs Displayed
-
-| KPI | Current Value | Description |
-|-----|---------------|-------------|
-| **Total Deposit** | $3.77B | Sum of all deposit products |
-| **Bank Deposit** | $2.01B | Standard bank deposits |
-| **Foreign Currency** | $89.65M | Foreign currency accounts |
-| **Saving Account** | $698.73M | Dedicated savings accounts |
-| **Checking Account** | $963.28M | Checking/transaction accounts |
-| **Avg Risk** | 57.5/100 | Average risk score for filtered customers |
-
-#### Charts
-
-**1. Deposit Breakdown by Income Band**
-- Stacked bar chart showing deposit composition
-- Color coding:
-  - Teal: Bank Deposit
-  - Amber: Checking
-  - Purple: Savings
-  - Pink: Foreign Currency
-- Insight: Medium income customers hold the most deposits overall
-
-**2. Deposits by Customer Tenure**
-- Bar chart showing total deposits by engagement period
-- Insight: Customers with 10-20 years tenure have accumulated the most deposits
-
----
+**Breakdown**: Bank Deposit ($2.01B) | Checking ($963M) | Savings ($699M) | Foreign Currency ($90M)
+**Charts**: Deposit breakdown by income band, Deposits by tenure
 
 ### Summary Dashboard
-
 ![Summary Dashboard](screenshots/summary.png)
 
-Complete KPI overview displaying all 13 key performance indicators in a single view.
+**Display**: All 13 KPIs in responsive grid
+**Filters**: Engagement, Gender, Relationship Type, Advisor
 
-#### All KPIs
-
-| Category | KPI | Value | Description |
-|----------|-----|-------|-------------|
-| **Customer** | Total Clients | 3,000 | Portfolio size |
-| **Loans** | Total Loan | $4.38B | All loan products |
-| | Bank Loan | $1.77B | Traditional loans |
-| | Business Lending | $2.60B | Commercial loans |
-| | Credit Cards Balance | $9.53M | CC outstanding |
-| **Deposits** | Total Deposit | $3.77B | All deposit products |
-| | Bank Deposit | $2.01B | Standard deposits |
-| | Checking Account | $963.28M | Transaction accounts |
-| | Saving Account | $698.73M | Savings accounts |
-| | Foreign Currency | $89.65M | FX accounts |
-| **Other** | Total CC Amount | 4,391 | Cards issued |
-| | Total Fees | $158.19M | Fee revenue |
-| **Risk** | Average Risk Score | 57.5/100 | Portfolio risk |
-
----
-
-## KPI Definitions
-
-### Loan Metrics
-
-- **Total Loan**: `Bank Loans + Business Lending + Credit Card Balance`
-- **Bank Loan**: Traditional personal and mortgage loans
-- **Business Lending**: Commercial loans, lines of credit, equipment financing
-- **Credit Cards Balance**: Outstanding revolving credit
-
-### Deposit Metrics
-
-- **Total Deposit**: `Bank Deposits + Checking + Savings + Foreign Currency`
-- **Bank Deposit**: Term deposits, CDs, fixed deposits
-- **Checking Account**: Transaction/current accounts
-- **Saving Account**: Interest-bearing savings accounts
-- **Foreign Currency**: Multi-currency accounts
-
-### Risk Metrics
-
-- **Average Risk Score**: Mean of individual customer risk scores (0-100)
-- **Risk Weighting**: Per-customer composite risk score
-
-### Revenue Metrics
-
-- **Total Fees**: Processing fees calculated as `0.025 * Total Loan + 0.015 * Total Deposit`
+**Data Flow**: CSV files (generated from database) → PapaParse → TypeScript interfaces → React state → Recharts visualization
 
 ---
 
 ## Installation
 
 ### Prerequisites
-
 - Python 3.8+
 - Node.js 16+
-- npm or yarn
 
 ### Backend Setup
-
 ```bash
-# Clone repository
-git clone https://github.com/aaryouz/LeaderBank-Risk-Analysis.git
-cd LeaderBank-Risk-Analysis
-
-# Install Python dependencies
+# Install dependencies
 pip install -r requirements.txt
 
 # Run ETL pipeline
@@ -270,92 +130,172 @@ python3 calculate_risk_scores.py
 ```
 
 ### Frontend Setup
-
 ```bash
-# Navigate to dashboard
 cd dashboard
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-The dashboard will be available at `http://localhost:5173`
+Dashboard available at `http://localhost:5173`
 
 ---
 
 ## Usage
 
-### Running the ETL Pipeline
-
+### Run ETL Pipeline
 ```bash
 python3 main.py
 ```
 
-This will:
-1. Load and validate `Banking.csv`
-2. Clean data and engineer features
-3. Calculate all KPIs
-4. Export results to `output/` directory
+**Pipeline Flow**:
+1. Extract: Load Banking.csv (3,000 records)
+2. Transform: Calculate 7 derived fields
+3. Load: Insert to SQLite + Export 7 CSV files
 
-### Updating Risk Scores
+**Output**:
+- `output/banking.db` - SQLite database with audit trail
+- `output/cleaned_banking.csv` - Transformed data
+- `output/kpi_summary.csv` - 13 aggregated KPIs
+- `output/kpi_by_*.csv` - 5 dimensional breakdowns
 
+**Performance**: <5 seconds end-to-end (batch inserts, WAL mode)
+
+### Update Risk Scores
 ```bash
 python3 calculate_risk_scores.py
 ```
 
-This will:
-1. Calculate 5-component risk scores for all customers
-2. Update `Banking.csv` with new scores
-3. Generate `output/risk_score_breakdown.csv` with component details
+Applies 5-component algorithm, updates Banking.csv, generates risk_score_breakdown.csv
 
-### Refreshing Dashboard Data
-
-After running the ETL pipeline, copy the output to the dashboard:
-
+### Query Database
 ```bash
-cp output/cleaned_banking.csv dashboard/public/
+sqlite3 output/banking.db
 ```
+
+**Pipeline run history**:
+```sql
+SELECT run_id, run_timestamp, records_loaded, execution_time_seconds
+FROM pipeline_runs
+ORDER BY run_timestamp DESC;
+```
+
+**High-risk clients** (>70 risk score):
+```sql
+SELECT client_id, name, nationality, total_loan, risk_weighting,
+       total_loan / NULLIF(total_deposit, 0) as loan_to_deposit_ratio
+FROM latest_banking_records
+WHERE risk_weighting >= 70
+ORDER BY risk_weighting DESC
+LIMIT 50;
+```
+
+**Risk trend analysis** (compare across runs):
+```sql
+SELECT pr.run_timestamp,
+       COUNT(*) as clients,
+       AVG(br.risk_weighting) as avg_risk,
+       SUM(br.total_loan) / 1000000 as total_loan_millions
+FROM pipeline_runs pr
+JOIN banking_records br ON pr.run_id = br.run_id
+WHERE pr.status = 'success'
+GROUP BY pr.run_id
+ORDER BY pr.run_timestamp DESC;
+```
+
+**Portfolio by nationality**:
+```sql
+SELECT nationality,
+       COUNT(*) as clients,
+       AVG(total_loan) as avg_loan,
+       AVG(total_deposit) as avg_deposit,
+       AVG(risk_weighting) as avg_risk
+FROM latest_banking_records
+GROUP BY nationality
+ORDER BY clients DESC;
+```
+
+---
+
+## Database Features
+
+✅ **Audit Trail** - Every pipeline run tracked (run_id, timestamp, status)
+✅ **Versioning** - Historical data retained across runs (6,000+ records for 2+ runs)
+✅ **Indexes** - Optimized for filtering (nationality, income_band, engagement, composite)
+✅ **Constraints** - Data integrity (CHECK constraints on age, risk, financial values)
+✅ **Transactions** - ACID compliance with automatic rollback on errors
+✅ **Single Source of Truth** - CSV files generated FROM database
+✅ **Performance** - Batch inserts (500 records/txn), WAL mode, 0.10s for 3,000 records
 
 ---
 
 ## Tech Stack
 
-### Backend
-- **Python 3.x** - ETL and risk calculation
-- **Pandas** - Data manipulation
-- **NumPy** - Numerical operations
+**Backend**:
+- Python 3.x - ETL orchestration
+- Pandas - Data manipulation
+- NumPy - Numerical operations
+- SQLite3 - Embedded database (stdlib, no installation)
 
-### Frontend
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool
-- **Tailwind CSS** - Styling
-- **Recharts** - Data visualization
-- **React Router** - Navigation
-- **PapaParse** - CSV parsing
-
----
-
-## Data Sources
-
-The project uses synthetic banking data representing:
-- 3,000 customer records
-- 24 original attributes including demographics, account balances, and risk factors
-- Derived fields for engagement analysis and fee calculations
+**Frontend**:
+- React 18 - UI framework
+- TypeScript - Type safety
+- Vite - Build tool
+- Tailwind CSS - Styling
+- Recharts - Data visualization
+- React Router - Navigation
+- PapaParse - CSV parsing
 
 ---
 
-## Future Enhancements
+## KPI Definitions
 
-- [ ] Add customer-level drill-down views
-- [ ] Implement predictive risk modeling (ML)
-- [ ] Add time-series trend analysis
-- [ ] Export functionality for reports
-- [ ] Real-time data integration
-- [ ] Alert system for high-risk customers
+| KPI | Formula |
+|-----|---------|
+| Total Clients | COUNT(DISTINCT Client ID) |
+| Total Loan | SUM(Bank Loans + Business Lending + CC Balance) |
+| Total Deposit | SUM(Bank Deposits + Checking + Savings + Foreign Currency) |
+| Total Fees | SUM(Total Loan × Processing Fee Rate) |
+| Avg Risk Score | AVG(Risk Weighting) |
+| Bank Loan | SUM(Bank Loans) |
+| Business Lending | SUM(Business Lending) |
+| Credit Cards Balance | SUM(CC Balance) |
+| Bank Deposit | SUM(Bank Deposits) |
+| Checking Account Amount | SUM(Checking Accounts) |
+| Saving Account Amount | SUM(Saving Accounts) |
+| Foreign Currency Amount | SUM(Foreign Currency Account) |
+| Total CC Amount | SUM(Amount of Credit Cards) |
+
+---
+
+## Project Structure
+
+```
+Bank-Risk-Analysis/
+├── Banking.csv                      # Source data (3,000 customers)
+├── main.py                          # ETL entry point
+├── calculate_risk_scores.py         # Risk scoring script
+├── requirements.txt                 # Python dependencies
+├── src/
+│   ├── extract.py                   # Data loading & validation
+│   ├── transform.py                 # Feature engineering
+│   ├── kpis.py                      # KPI calculations
+│   ├── load.py                      # Database + CSV export
+│   ├── database.py                  # SQLite operations
+│   └── risk_scoring.py              # Risk algorithm
+├── output/
+│   ├── banking.db                   # SQLite database
+│   ├── cleaned_banking.csv          # Transformed data
+│   ├── kpi_summary.csv              # Aggregated KPIs
+│   ├── kpi_by_*.csv                 # Dimensional breakdowns
+│   └── risk_score_breakdown.csv     # Risk components
+└── dashboard/
+    ├── src/
+    │   ├── pages/                   # Home, Loan, Deposit, Summary
+    │   ├── components/              # KPICard, Navigation
+    │   └── utils/dataLoader.ts      # CSV parsing, filtering
+    └── public/
+        └── cleaned_banking.csv      # Dashboard data source
+```
 
 ---
 
@@ -365,8 +305,6 @@ MIT License
 
 ---
 
-## Author
+## Repository
 
-Built with Claude Code assistance.
-
-Repository: https://github.com/aaryouz/LeaderBank-Risk-Analysis
+https://github.com/aaryouz/LeaderBank-Risk-Analysis

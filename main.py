@@ -17,6 +17,7 @@ def run_pipeline():
     project_dir = Path(__file__).parent
     input_file = project_dir / 'Banking.csv'
     output_dir = project_dir / 'output'
+    db_path = output_dir / 'banking.db'
 
     print("=" * 60)
     print("Banking Risk Assessment ETL Pipeline")
@@ -32,7 +33,7 @@ def run_pipeline():
 
     # Load
     print("\n[3/3] LOAD - Exporting results...")
-    load(df, str(output_dir))
+    run_id = load(df, str(output_dir), db_path=str(db_path))
 
     # Display KPI Summary
     print("\n" + "=" * 60)
@@ -53,6 +54,7 @@ def run_pipeline():
 
     print("\n" + "=" * 60)
     print("Pipeline completed successfully!")
+    print(f"Pipeline Run ID: {run_id}")
     print("=" * 60)
 
     return df

@@ -1,80 +1,85 @@
 """
-Load module - Export processed data and KPIs
+Load module - Export processed data and KPIs to SQLite database and CSV
 """
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
 from .kpis import generate_kpi_summary, kpis_by_dimension
+from .database import BankingDatabase
 
 
-def export_cleaned_data(df: pd.DataFrame, output_path: str) -> None:
+def load(df: pd.DataFrame, output_dir: str, db_path: str = None) -> int:
     """
-    Export cleaned and transformed data to CSV.
-
-    Args:
-        df: Transformed DataFrame
-        output_path: Path to output file
-    """
-    df.to_csv(output_path, index=False)
-    print(f"Cleaned data exported to: {output_path}")
-
-
-def export_kpi_summary(df: pd.DataFrame, output_path: str) -> None:
-    """
-    Export KPI summary to CSV.
-
-    Args:
-        df: Transformed DataFrame
-        output_path: Path to output file
-    """
-    summary = generate_kpi_summary(df)
-    summary.to_csv(output_path, index=False)
-    print(f"KPI summary exported to: {output_path}")
-
-
-def export_kpi_breakdowns(df: pd.DataFrame, output_dir: str) -> None:
-    """
-    Export KPI breakdowns by various dimensions.
+    Main load function - export to database and CSV files.
 
     Args:
         df: Transformed DataFrame
         output_dir: Directory for output files
-    """
-    output_path = Path(output_dir)
+        db_path: Path to SQLite database (default: output/banking.db)
 
-    dimensions = [
-        'Nationality',
-        'Income Band',
-        'Engagement Timeframe',
-        'Fee Structure',
-        'Loyalty Classification'
-    ]
-
-    for dim in dimensions:
-        if dim in df.columns:
-            breakdown = kpis_by_dimension(df, dim)
-            filename = f"kpi_by_{dim.lower().replace(' ', '_')}.csv"
-            breakdown.to_csv(output_path / filename, index=False)
-            print(f"KPI breakdown by {dim} exported to: {output_path / filename}")
-
-
-def load(df: pd.DataFrame, output_dir: str) -> None:
-    """
-    Main load function - export all outputs.
-
-    Args:
-        df: Transformed DataFrame
-        output_dir: Directory for output files
+    Returns:
+        run_id for this pipeline execution
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Export cleaned data
-    export_cleaned_data(df, str(output_path / 'cleaned_banking.csv'))
+    # Database path
+    if db_path is None:
+        db_path = str(output_path / 'banking.db')
 
-    # Export KPI summary
-    export_kpi_summary(df, str(output_path / 'kpi_summary.csv'))
+    # Initialize database
+    db = BankingDatabase(db_path)
+    start_time = datetime.now()
 
-    # Export KPI breakdowns
-    export_kpi_breakdowns(df, output_dir)
+    # Start pipeline run
+    run_id = db.start_pipeline_run('Banking.csv', len(df))
 
-    print(f"\nAll outputs exported to: {output_dir}")
+    try:
+        print("\n[DATABASE] Loading data to SQLite...")
+
+        # Insert banking records (batched for performance)
+        records_loaded = db.insert_banking_records(df, run_id, batch_size=500)
+        print(f"[DATABASE] Loaded {records_loaded} banking records")
+
+        # Generate and insert KPI summary
+        kpi_summary = generate_kpi_summary(df)
+        db.insert_kpi_summary(kpi_summary, run_id)
+        print(f"[DATABASE] Loaded {len(kpi_summary)} KPIs")
+
+        # Insert dimensional KPI breakdowns
+        dimensions = [
+            'Nationality',
+            'Income Band',
+            'Engagement Timeframe',
+            'Fee Structure',
+            'Loyalty Classification'
+        ]
+
+        for dim in dimensions:
+            if dim in df.columns:
+                breakdown = kpis_by_dimension(df, dim)
+                db.insert_kpi_by_dimension(dim, breakdown, run_id)
+                print(f"[DATABASE] Loaded KPIs by {dim}")
+
+        # Mark run as successful
+        execution_time = (datetime.now() - start_time).total_seconds()
+        db.complete_pipeline_run(run_id, records_loaded, execution_time, 'success')
+
+        print(f"\n[CSV EXPORT] Exporting from database to CSV files...")
+        # Export CSV files from database (maintains dashboard compatibility)
+        db.export_to_csv(run_id, str(output_path))
+
+        print(f"\n{'='*60}")
+        print(f"Database: {db_path} (Run ID: {run_id})")
+        print(f"CSV files exported to: {output_dir}")
+        print(f"Execution time: {execution_time:.2f}s")
+        print(f"{'='*60}")
+
+        return run_id
+
+    except Exception as e:
+        # Mark run as failed
+        execution_time = (datetime.now() - start_time).total_seconds()
+        db.complete_pipeline_run(run_id, 0, execution_time, 'failed', notes=str(e))
+        print(f"\n[ERROR] Pipeline failed: {e}")
+        raise
