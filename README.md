@@ -216,18 +216,6 @@ ORDER BY clients DESC;
 
 ---
 
-## Database Features
-
-✅ **Audit Trail** - Every pipeline run tracked (run_id, timestamp, status)
-✅ **Versioning** - Historical data retained across runs (6,000+ records for 2+ runs)
-✅ **Indexes** - Optimized for filtering (nationality, income_band, engagement, composite)
-✅ **Constraints** - Data integrity (CHECK constraints on age, risk, financial values)
-✅ **Transactions** - ACID compliance with automatic rollback on errors
-✅ **Single Source of Truth** - CSV files generated FROM database
-✅ **Performance** - Batch inserts (500 records/txn), WAL mode, 0.10s for 3,000 records
-
----
-
 ## Tech Stack
 
 **Backend**:
